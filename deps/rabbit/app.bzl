@@ -132,6 +132,7 @@ def all_beam_files(name = "all_beam_files"):
             "src/rabbit_exchange_type_fanout.erl",
             "src/rabbit_exchange_type_headers.erl",
             "src/rabbit_exchange_type_invalid.erl",
+            "src/rabbit_exchange_type_local_random.erl",
             "src/rabbit_exchange_type_topic.erl",
             "src/rabbit_feature_flags.erl",
             "src/rabbit_ff_controller.erl",
@@ -400,6 +401,7 @@ def all_test_beam_files(name = "all_test_beam_files"):
             "src/rabbit_exchange_type_fanout.erl",
             "src/rabbit_exchange_type_headers.erl",
             "src/rabbit_exchange_type_invalid.erl",
+            "src/rabbit_exchange_type_local_random.erl",
             "src/rabbit_exchange_type_topic.erl",
             "src/rabbit_feature_flags.erl",
             "src/rabbit_ff_controller.erl",
@@ -686,6 +688,7 @@ def all_srcs(name = "all_srcs"):
             "src/rabbit_exchange_type_fanout.erl",
             "src/rabbit_exchange_type_headers.erl",
             "src/rabbit_exchange_type_invalid.erl",
+            "src/rabbit_exchange_type_local_random.erl",
             "src/rabbit_exchange_type_topic.erl",
             "src/rabbit_feature_flags.erl",
             "src/rabbit_ff_controller.erl",
@@ -2161,7 +2164,6 @@ def test_suite_beam_files(name = "test_suite_beam_files"):
         erlc_opts = "//:test_erlc_opts",
         deps = ["//deps/amqp_client:erlang_app"],
     )
-
     erlang_bytecode(
         name = "test_event_recorder_beam",
         testonly = True,
@@ -2232,4 +2234,13 @@ def test_suite_beam_files(name = "test_suite_beam_files"):
         app_name = "rabbit",
         erlc_opts = "//:test_erlc_opts",
         deps = ["//deps/amqp_client:erlang_app", "//deps/rabbitmq_ct_helpers:erlang_app"],
+    )
+    erlang_bytecode(
+        name = "rabbit_local_random_exchange_SUITE_beam_files",
+        testonly = True,
+        srcs = ["test/rabbit_local_random_exchange_SUITE.erl"],
+        outs = ["test/rabbit_local_random_exchange_SUITE.beam"],
+        app_name = "rabbit",
+        erlc_opts = "//:test_erlc_opts",
+        deps = ["//deps/amqp_client:erlang_app"],
     )
