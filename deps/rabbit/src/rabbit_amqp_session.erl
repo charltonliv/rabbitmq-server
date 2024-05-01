@@ -1218,8 +1218,6 @@ handle_control(Detach = #'v1_0.detach'{handle = ?UINT(HandleInt)},
                   {ok, Q} ->
                       %%TODO Add a new rabbit_queue_type:remove_consumer API that - from the point of view of
                       %% the queue process - behaves as if our session process terminated: All messages checked out
-                      %% to this consumer should be re-queued automatically instead of us requeueing them here after cancelling
-                      %% consumption.
                       %% For AMQP legacy (and STOMP / MQTT) consumer cancellation not requeueing messages is a good approach as
                       %% clients may want to ack any in-flight messages.
                       %% For AMQP however, the consuming client can stop cancellations via link-credit=0 and drain=true being
@@ -1229,9 +1227,9 @@ handle_control(Detach = #'v1_0.detach'{handle = ?UINT(HandleInt)},
                       %% first detaching and then re-attaching to the same session with the same link handle (the handle
                       %% becomes available for re-use once a link is closed): This will result in the same consumer tag,
                       %% and we ideally disallow "updating" an AMQP consumer.
-                      %% If such an API is not added, we also must return messages in the outgoing_pending queue
-                      %% which haven't made it to the outgoing_unsettled map yet.
-                      case rabbit_queue_type:cancel(Q, Ctag, undefined, Username, QStates0) of
+                      Spec = #{consumer_tag => Ctag,
+                               user => Username},
+                      case rabbit_queue_type:cancel(Q, Spec, QStates0) of
                           {ok, QStates1} ->
                               {Unsettled1, MsgIds} = remove_link_from_outgoing_unsettled_map(Ctag, Unsettled0),
                               case MsgIds of
