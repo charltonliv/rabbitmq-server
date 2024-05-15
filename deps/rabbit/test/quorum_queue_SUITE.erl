@@ -746,7 +746,7 @@ server_system_recover(Config) ->
     %% validate quorum queue is still functional
     ?awaitMatch({ok, _, _},
                 begin
-                    ra:members({RaName, Server})
+                    catch ra:members({RaName, Server})
                 end, ?DEFAULT_AWAIT),
     ok.
 
