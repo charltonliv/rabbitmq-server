@@ -53,7 +53,10 @@ groups() ->
      {mock, [], [
                  insufficient_credit,
                  incoming_heartbeat,
-                 multi_transfer_without_delivery_id
+                 multi_transfer_without_delivery_id,
+                 set_receiver_capabilities,
+                 set_sender_capabilities,
+                 set_sender_sync_capabilities
                 ]}
     ].
 
@@ -708,6 +711,7 @@ subscribe_with_auto_flow_unsettled(Config) ->
     ok = amqp10_client:end_session(Session),
     ok = amqp10_client:close_connection(Connection).
 
+    
 insufficient_credit(Config) ->
     Hostname = ?config(mock_host, Config),
     Port = ?config(mock_port, Config),
@@ -806,6 +810,184 @@ multi_transfer_without_delivery_id(Config) ->
     after 2000 ->
               exit(delivery_timeout)
     end,
+
+    ok = amqp10_client:end_session(Session),
+    ok = amqp10_client:close_connection(Connection),
+    ok.
+
+set_receiver_capabilities(Config) ->
+    Hostname = ?config(mock_host, Config),
+    Port = ?config(mock_port, Config),
+    
+    OpenStep = fun({0 = Ch, #'v1_0.open'{}, _Pay}) ->
+                       {Ch, [#'v1_0.open'{container_id = {utf8, <<"mock">>}}]}
+               end,
+    BeginStep = fun({1 = Ch, #'v1_0.begin'{}, _Pay}) ->
+                         {Ch, [#'v1_0.begin'{remote_channel = {ushort, 1},
+                                             next_outgoing_id = {uint, 1},
+                                             incoming_window = {uint, 1000},
+                                             outgoing_window = {uint, 1000}}
+                                             ]}
+                end,
+    AttachStep = fun({1 = Ch, #'v1_0.attach'{role = true,
+                                             name = Name,
+                                             source = #'v1_0.source'{
+                                                capabilities = {symbol, <<"capability-1">>}}}, <<>>}) ->
+                         {Ch, [#'v1_0.attach'{name = Name,
+                                              handle = {uint, 99},
+                                              initial_delivery_count = {uint, 1},
+                                              role = false}
+                              ]}
+                 end,
+
+    LinkCreditStep = fun({1 = Ch, #'v1_0.flow'{}, <<>>}) ->
+                             {Ch, {multi, [[#'v1_0.transfer'{handle = {uint, 99},
+                                                             delivery_id = {uint, 12},
+                                                             more = true},
+                                            #'v1_0.data'{content = <<"hello ">>}],
+                                           [#'v1_0.transfer'{handle = {uint, 99},
+                                                             % delivery_id can be omitted
+                                                             % for continuation frames
+                                                             delivery_id = undefined,
+                                                             settled = undefined,
+                                                             more = false},
+                                            #'v1_0.data'{content = <<"world">>}]
+                                          ]}}
+                     end,
+    Steps = [fun mock_server:recv_amqp_header_step/1,
+             fun mock_server:send_amqp_header_step/1,
+             mock_server:amqp_step(OpenStep),
+             mock_server:amqp_step(BeginStep),
+             mock_server:amqp_step(AttachStep),
+             mock_server:amqp_step(LinkCreditStep)
+            ],
+
+    ok = mock_server:set_steps(?config(mock_server, Config), Steps),
+
+    Cfg = #{address => Hostname, port => Port, sasl => none, notify => self()},
+    {ok, Connection} = amqp10_client:open_connection(Cfg),
+    {ok, Session} = amqp10_client:begin_session_sync(Connection),
+    AttachArgs = #{name => <<"mock1-received">>,
+                   role => {receiver, #{address => <<"test">>,
+                                        durable => none,
+                                        capabilities => <<"capability-1">>}, self()},
+                   snd_settle_mode => setlled,
+                   rcv_settle_mode => first,
+                   filter => #{},
+                   properties => #{}},
+    {ok, Receiver} = amqp10_client:attach_link(Session, AttachArgs),
+    amqp10_client:flow_link_credit(Receiver, 100, 50),
+    receive
+        {amqp10_msg, Receiver, _InMsg} ->
+            ok
+    after 2000 ->
+              exit(delivery_timeout)
+    end,
+
+    ok = amqp10_client:end_session(Session),
+    ok = amqp10_client:close_connection(Connection),
+    ok.
+
+set_sender_capabilities(Config) ->
+    Hostname = ?config(mock_host, Config),
+    Port = ?config(mock_port, Config),
+    OpenStep = fun({0 = Ch, #'v1_0.open'{}, _Pay}) ->
+                       {Ch, [#'v1_0.open'{container_id = {utf8, <<"mock">>}}]}
+               end,
+    BeginStep = fun({1 = Ch, #'v1_0.begin'{}, _Pay}) ->
+                         {Ch, [#'v1_0.begin'{remote_channel = {ushort, 1},
+                                             next_outgoing_id = {uint, 1},
+                                             incoming_window = {uint, 1000},
+                                             outgoing_window = {uint, 1000}}
+                                             ]}
+                end,
+    AttachStep = fun({1 = Ch, #'v1_0.attach'{role = false,
+                                             name = Name,
+                                             source = #'v1_0.source'{
+
+                                             },
+                                             target = #'v1_0.target'{
+                                                capabilities = {symbol, <<"capability-1">>}}}, <<>>}) ->
+                         {Ch, [#'v1_0.attach'{name = Name,
+                                              handle = {uint, 99},
+                                              role = true}]}
+                 end,
+    Steps = [fun mock_server:recv_amqp_header_step/1,
+             fun mock_server:send_amqp_header_step/1,
+             mock_server:amqp_step(OpenStep),
+             mock_server:amqp_step(BeginStep),
+             mock_server:amqp_step(AttachStep)],
+
+    ok = mock_server:set_steps(?config(mock_server, Config), Steps),
+
+    Cfg = #{address => Hostname, port => Port, sasl => none, notify => self()},
+    {ok, Connection} = amqp10_client:open_connection(Cfg),
+    {ok, Session} = amqp10_client:begin_session_sync(Connection),
+    AttachArgs = #{name => <<"mock1-sender">>,
+                role => {sender, #{address => <<"test">>,
+                                    durable => none,
+                                    capabilities => <<"capability-1">>}},
+                snd_settle_mode => mixed,
+                rcv_settle_mode => first},
+    {ok, Sender} = amqp10_client:attach_link(Session, AttachArgs),   
+    await_link(Sender, attached, attached_timeout),
+    Msg = amqp10_msg:new(<<"mock-tag">>, <<"banana">>, true),
+    {error, insufficient_credit} = amqp10_client:send_msg(Sender, Msg),
+
+    ok = amqp10_client:end_session(Session),
+    ok = amqp10_client:close_connection(Connection),
+    ok.
+
+
+set_sender_sync_capabilities(Config) ->
+    Hostname = ?config(mock_host, Config),
+    Port = ?config(mock_port, Config),
+    OpenStep = fun({0 = Ch, #'v1_0.open'{}, _Pay}) ->
+                       {Ch, [#'v1_0.open'{container_id = {utf8, <<"mock">>}}]}
+               end,
+    BeginStep = fun({1 = Ch, #'v1_0.begin'{}, _Pay}) ->
+                         {Ch, [#'v1_0.begin'{remote_channel = {ushort, 1},
+                                             next_outgoing_id = {uint, 1},
+                                             incoming_window = {uint, 1000},
+                                             outgoing_window = {uint, 1000}}
+                                             ]}
+                end,
+    AttachStep = fun({1 = Ch, #'v1_0.attach'{role = false,
+                                             name = Name,
+                                             source = #'v1_0.source'{
+
+                                             },
+                                             target = #'v1_0.target'{
+                                                capabilities = {array, symbol, [
+                                                                {symbol,<<"capability-1">>},
+                                                                {symbol,<<"capability-2">>}
+                                                                ]}
+                                             }}, <<>>}) ->
+                         {Ch, [#'v1_0.attach'{name = Name,
+                                              handle = {uint, 99},
+                                              role = true}]}
+                 end,
+    Steps = [fun mock_server:recv_amqp_header_step/1,
+             fun mock_server:send_amqp_header_step/1,
+             mock_server:amqp_step(OpenStep),
+             mock_server:amqp_step(BeginStep),
+             mock_server:amqp_step(AttachStep)],
+
+    ok = mock_server:set_steps(?config(mock_server, Config), Steps),
+
+    Cfg = #{address => Hostname, port => Port, sasl => none, notify => self()},
+    {ok, Connection} = amqp10_client:open_connection(Cfg),
+    {ok, Session} = amqp10_client:begin_session_sync(Connection),
+    AttachArgs = #{name => <<"mock1-sender">>,
+                   role => {sender, #{address => <<"test">>,
+                                      durable => none,
+                                      capabilities => [<<"capability-1">>,<<"capability-2">>]}},
+                   snd_settle_mode => mixed,
+                   rcv_settle_mode => first},
+    {ok, Sender} = amqp10_client:attach_link(Session, AttachArgs),
+    await_link(Sender, attached, attached_timeout),
+    Msg = amqp10_msg:new(<<"mock-tag">>, <<"banana">>, true),
+    {error, insufficient_credit} = amqp10_client:send_msg(Sender, Msg),
 
     ok = amqp10_client:end_session(Session),
     ok = amqp10_client:close_connection(Connection),
