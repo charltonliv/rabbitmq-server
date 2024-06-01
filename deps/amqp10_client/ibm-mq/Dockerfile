@@ -22,10 +22,12 @@ RUN groupadd mqm
 RUN useradd -g mqm app
 RUN /bin/bash -c "source /var/MQServer/bin/setmqenv -s" \
     && bin/crtmqm QM1 \
-    && bin/strmqm QM1 
+    && echo "Created Queue Manager ( $? )" \
+    && bin/strmqm QM1 \
+    && echo "Started Queue Manager ( $? )"
 
-RUN wget https://raw.githubusercontent.com/ibm-messaging/mq-dev-samples/master/gettingStarted/mqsc/mq-dev-config.mqsc 
+#RUN wget https://raw.githubusercontent.com/ibm-messaging/mq-dev-samples/master/gettingStarted/mqsc/mq-dev-config.mqsc 
     
-RUN cat /var/MQServer/mq-dev-config.mqsc \
-    && bin/runmqsc QM1 < /var/MQServer/mq-dev-config.mqsc
+#RUN cat /var/MQServer/mq-dev-config.mqsc \
+#    && bin/runmqsc QM1 < /var/MQServer/mq-dev-config.mqsc
 
