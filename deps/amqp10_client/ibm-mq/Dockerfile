@@ -6,10 +6,10 @@ RUN apt-get update \
     && apt-get install -y wget gzip \
     && rm -rf /var/lib/apt/lists/*
 
-RUN wget -c https://public.dhe.ibm.com/ibmdl/export/pub/software/websphere/messaging/mqadv/9.3.5.0-IBM-MQ-Advanced-for-Developers-Non-Install-Linux${ARCH}.tar.gz \
-    && gunzip 9.3.5.0-IBM-MQ-Advanced-for-Developers-Non-Install-Linux${ARCH}.tar.gz \
+RUN wget -c https://public.dhe.ibm.com/ibmdl/export/pub/software/websphere/messaging/mqadv/9.3.5.0-IBM-MQ-Advanced-for-Developers-${ARCH}.tar.gz \
+    && gunzip 9.3.5.0-IBM-MQ-Advanced-for-Developers-${ARCH}.tar.gz \
     && mkdir /var/MQServer \    
-    && tar -xf 9.3.5.0-IBM-MQ-Advanced-for-Developers-Non-Install-Linux${ARCH}.tar -C /var/MQServer 
+    && tar -xf 9.3.5.0-IBM-MQ-Advanced-for-Developers-${ARCH}.tar -C /var/MQServer 
     
 WORKDIR /var/MQServer 
 
@@ -27,6 +27,8 @@ RUN /bin/bash -c "source /var/MQServer/bin/setmqenv -s" \
 COPY start.sh /var/MQServer/start.sh 
 RUN chmod 777 /var/MQServer/start.sh
 EXPOSE 1414/tcp 
+EXPOSE 5672/tcp 
+
 #ENV MQ_OVERRIDE_DATA_PATH=/mnt/mqm/data MQ_OVERRIDE_INSTALLATION_NAME=Installation1 MQ_USER_NAME="mqm" 
 ENTRYPOINT /var/MQServer/start.sh
 
