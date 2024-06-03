@@ -13,7 +13,7 @@ RUN wget -c https://public.dhe.ibm.com/ibmdl/export/pub/software/websphere/messa
     
 WORKDIR /var/MQServer 
 
-RUN  bin/mqlicense -accept
+RUN bin/mqlicense -accept
 
 RUN echo "Checking MQ version" \
     && bin/dspmqver 
@@ -22,9 +22,13 @@ RUN groupadd mqm
 RUN useradd -g mqm app
 RUN /bin/bash -c "source /var/MQServer/bin/setmqenv -s" \
     && bin/crtmqm QM1 \
-    && echo "Created Queue Manager ( $? )" \
-    && bin/strmqm QM1 \
-    && echo "Started Queue Manager ( $? )"
+    && echo "Created Queue Manager ( $? )" 
+    
+COPY start.sh /var/MQServer/start.sh 
+RUN chmod 777 /var/MQServer/start.sh
+EXPOSE 1414/tcp 
+#ENV MQ_OVERRIDE_DATA_PATH=/mnt/mqm/data MQ_OVERRIDE_INSTALLATION_NAME=Installation1 MQ_USER_NAME="mqm" 
+ENTRYPOINT /var/MQServer/start.sh
 
 #RUN wget https://raw.githubusercontent.com/ibm-messaging/mq-dev-samples/master/gettingStarted/mqsc/mq-dev-config.mqsc 
     
