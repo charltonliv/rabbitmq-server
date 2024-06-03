@@ -433,10 +433,16 @@ stop-brokers stop-cluster:
 # * make && make reload-cluster
 # --------------------------------------------------------------------
 
+# We exclude modules that get recompiled on load as the modules
+# on disk will always differ from the modules loaded. To reload
+# these modules, add RELOAD_EXCLUDE= to the Make command.
+RELOAD_EXCLUDE ?= rabbit_ff_registry
+
 reload-broker:
 	$(exec_verbose) ERL_LIBS="$(DIST_ERL_LIBS)" \
 		$(RABBITMQCTL) -n $(RABBITMQ_NODENAME) \
-		eval "io:format(\"~p~n\", [c:lm()])."
+		eval "io:format(\"~p~n\", [[c:l(M) || M <- \
+			(c:mm() -- [$(call comma_list,$(RELOAD_EXCLUDE))])]])."
 
 ifeq ($(MAKELEVEL),0)
 ifdef RELOAD
