@@ -791,7 +791,7 @@ filter_capability(V) when is_binary(V) ->
 filter_capability({T, _} = V) when is_atom(T) ->
     %% looks like an already tagged type, just pass it through
     V.
-        
+
 % https://people.apache.org/~rgodfrey/amqp-1.0/apache-filters.html
 translate_legacy_amqp_headers_binding(LegacyHeaders) ->
     {map,
@@ -867,6 +867,7 @@ send_attach(Send, #{name := Name, role := RoleTuple} = Args, {FromPid, _},
                             rcv_settle_mode = rcv_settle_mode(Args),
                             target = Target,
                             max_message_size = MaxMessageSize},
+    ct:log("Attach frame ~p", [Attach]),
     ok = Send(Attach, State),
 
     Ref = make_link_ref(Role, self(), OutHandle),
