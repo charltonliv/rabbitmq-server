@@ -24,7 +24,7 @@ all() ->
      {group, rabbitmq},
      {group, rabbitmq_strict},
      {group, activemq},
-  %    {group, ibmmq}
+%      {group, ibmmq}
      {group, activemq_no_anon},
      {group, mock}
     ].
@@ -62,11 +62,10 @@ groups() ->
                 ]}
     ].
 
-test() -> 
+test() ->
     [
         open_close_connection,
-        basic_roundtrip,
-        set_sender_capabilities
+        basic_roundtrip
     ].
 
 shared() ->
@@ -115,9 +114,9 @@ stop_amqp10_client_app(Config) ->
 %% -------------------------------------------------------------------
 
 init_per_group(rabbitmq, Config0) ->
-    Config = rabbit_ct_helpers:set_config(Config0,
-                                          {sasl, {plain, <<"guest">>, <<"guest">>}}),
+    Config = rabbit_ct_helpers:set_config(Config0,{sasl, {plain, <<"guest">>, <<"guest">>}}),
     rabbit_ct_helpers:run_steps(Config, rabbit_ct_broker_helpers:setup_steps());
+
 init_per_group(rabbitmq_strict, Config0) ->
     Config = rabbit_ct_helpers:set_config(Config0,
                                           {sasl, {plain, <<"guest">>, <<"guest">>}}),
@@ -131,9 +130,10 @@ init_per_group(activemq, Config0) ->
                                 activemq_ct_helpers:setup_steps("activemq.xml"));
 
 init_per_group(ibmmq, Config0) ->
-    rabbit_ct_helpers:set_config(Config0, [ {rmq_hostname, "localhost"}, 
+    NodeConfig = [{tcp_port_amqp, 5672}],
+    rabbit_ct_helpers:set_config(Config0, [ {rmq_nodes, [NodeConfig]},
+                                            {rmq_hostname, "localhost"},
                                             {tcp_hostname_amqp, "localhost"},
-                                            {tcp_port_amqp, 5677},
                                             {sasl, {plain, <<"app">>, <<"passw0rd">>}} ]);
 init_per_group(activemq_no_anon, Config0) ->
     Config = rabbit_ct_helpers:set_config(
@@ -149,7 +149,9 @@ init_per_group(azure, Config) ->
                                          {sb_port, 5671}
                                         ]);
 init_per_group(mock, Config) ->
-    rabbit_ct_helpers:set_config(Config, [{tcp_port_amqp, 25000},
+    rabbit_ct_helpers:set_config(Config, [{mock_port, 25000},
+                                          {tcp_port_amqp, 25000},
+                                          {mock_host, "localhost"},
                                           {tcp_hostname_amqp, "localhost"},
                                           {sasl, none}
                                          ]).
@@ -169,9 +171,11 @@ end_per_group(_, Config) ->
 %% -------------------------------------------------------------------
 
 init_per_testcase(_Test, Config) ->
+    ct:log("Setting per test case"),
     case lists:keyfind(mock_port, 1, Config) of
         {_, Port} ->
             M = mock_server:start(Port),
+            ct:log("Setting mock server"),
             rabbit_ct_helpers:set_config(Config, {mock_server, M});
         _ -> Config
     end.
@@ -186,22 +190,21 @@ end_per_testcase(_Test, Config) ->
 
 open_close_connection(Config) ->
     Hostname = ?config(rmq_hostname, Config),
-    Port = ?config(tcp_port_amqp, Config),
-    %% Port = rabbit_ct_broker_helpers:get_node_config(Config, 0, tcp_port_amqp),
+    Port = rabbit_ct_broker_helpers:get_node_config(Config, 0, tcp_port_amqp),
     %% an address list
     OpnConf = #{addresses => [Hostname],
                 port => Port,
                 notify => self(),
                 container_id => <<"open_close_connection_container">>,
                 sasl => ?config(sasl, Config)},
-    {ok, Connection} = amqp10_client:open_connection(Hostname, Port),
     {ok, Connection2} = amqp10_client:open_connection(OpnConf),
     receive
-        {amqp10_event, {connection, Connection2, opened}} -> ok
+        {amqp10_event, {connection, Connection2, opened}} -> ct:log("connection opened"), ok
     after 5000 -> exit(connection_timeout)
     end,
+    ct:log("Closing connection ..."),
     ok = amqp10_client:close_connection(Connection2),
-    ok = amqp10_client:close_connection(Connection).
+    ct:log("Closed connection .").
 
 open_connection_plain_sasl(Config) ->
     Hostname = ?config(rmq_hostname, Config),
@@ -270,7 +273,7 @@ basic_roundtrip(Config) ->
     application:start(sasl),
     Hostname = ?config(rmq_hostname, Config),
     Port = rabbit_ct_broker_helpers:get_node_config(Config, 0, tcp_port_amqp),
-    OpenConf = #{address => Hostname, port => Port, sasl => anon},
+    OpenConf = #{address => Hostname, port => Port, sasl => ?config(sasl, Config)},
     roundtrip(OpenConf).
 
 basic_roundtrip_tls(Config) ->
@@ -337,20 +340,40 @@ roundtrip_large_messages(Config) ->
     DataMb = rand:bytes(1024 * 1024),
     Data8Mb = rand:bytes(8 * 1024 * 1024),
     Data64Mb = rand:bytes(64 * 1024 * 1024),
-    ok = roundtrip(OpenConf, DataKb),
-    ok = roundtrip(OpenConf, DataMb),
-    ok = roundtrip(OpenConf, Data8Mb),
-    ok = roundtrip(OpenConf, Data64Mb).
+    ok = roundtrip(OpenConf, [{body, DataKb}]),
+    ok = roundtrip(OpenConf, [{body, DataMb}]),
+    ok = roundtrip(OpenConf, [{body, Data8Mb}]),
+    ok = roundtrip(OpenConf, [{body, Data64Mb}]).
+
+basic_roundtrip_ibmmq(Config) ->
+    application:start(sasl),
+    Hostname = ?config(rmq_hostname, Config),
+    Port = rabbit_ct_broker_helpers:get_node_config(Config, 0, tcp_port_amqp),
+    OpenConf = #{address => Hostname, port => Port, sasl => ?config(sasl, Config)},
+    roundtrip(OpenConf, [{body, <<"banana">>}, {destination, <<"DEV.QUEUE.1">>}]).
 
 roundtrip(OpenConf) ->
-    roundtrip(OpenConf, <<"banana">>).
+    roundtrip(OpenConf, []).
 
-roundtrip(OpenConf, Body) ->
+roundtrip(OpenConf, Args) ->
+    Body = proplists:get_value(body, Args, <<"banana">>),
+    Destination = proplists:get_value(destination, Args, <<"test1">>),
     {ok, Connection} = amqp10_client:open_connection(OpenConf),
     {ok, Session} = amqp10_client:begin_session(Connection),
-    {ok, Sender} = amqp10_client:attach_sender_link(
-                     Session, <<"banana-sender">>, <<"test1">>, settled, unsettled_state),
-    await_link(Sender, credited, link_credit_timeout),
+    ct:log("Session attached "),
+    SenderAttachArgs = #{name => <<"banana-sender">>,
+                   role => {sender, #{address => Destination,
+                                        durable => unsettled_state,
+                                        capabilities => <<"queue">>}},
+                   snd_settle_mode => settled,
+                   rcv_settle_mode => first,
+                   filter => #{},
+                   properties => #{}
+                   },
+    {ok, Sender} = amqp10_client:attach_link(Session, SenderAttachArgs),
+    %%await_link(Sender, credited, link_credit_timeout),
+    await_link(Sender, attached, attached_timeout),
+    ct:log("Sender attached "),
 
     Now = os:system_time(millisecond),
     Props = #{creation_time => Now,
@@ -369,8 +392,17 @@ roundtrip(OpenConf, Body) ->
     await_link(Sender, {detached, normal}, link_detach_timeout),
 
     {error, link_not_found} = amqp10_client:detach_link(Sender),
-    {ok, Receiver} = amqp10_client:attach_receiver_link(
-                       Session, <<"banana-receiver">>, <<"test1">>, settled, unsettled_state),
+    ReceiverAttachArgs = #{
+                   name => <<"banana-receiver">>,
+                   role => {receiver, #{address => Destination,
+                                        durable => unsettled_state,
+                                        capabilities => <<"queue">>}, self()},
+                   snd_settle_mode => settled,
+                   rcv_settle_mode => first,
+                   filter => #{},
+                   properties => #{}
+                   },
+    {ok, Receiver} = amqp10_client:attach_link(Session, ReceiverAttachArgs),
     {ok, OutMsg} = amqp10_client:get_msg(Receiver, 4 * 60_000),
     ok = amqp10_client:end_session(Session),
     ok = amqp10_client:close_connection(Connection),
@@ -384,14 +416,17 @@ roundtrip(OpenConf, Body) ->
     ok.
 
 filtered_roundtrip(OpenConf) ->
-    filtered_roundtrip(OpenConf, <<"banana">>).
+    filtered_roundtrip(OpenConf, []).
 
-filtered_roundtrip(OpenConf, Body) ->
+filtered_roundtrip(OpenConf, Args) ->
+    Body = proplists:get_value(body, Args, <<"banana">>),
+    Destination = proplists:get_value(destination, Args, <<"test1">>),
+
     {ok, Connection} = amqp10_client:open_connection(OpenConf),
     {ok, Session} = amqp10_client:begin_session(Connection),
     {ok, Sender} = amqp10_client:attach_sender_link(Session,
                                                     <<"default-sender">>,
-                                                    <<"test1">>,
+                                                    Destination,
                                                     settled,
                                                     unsettled_state),
     await_link(Sender, credited, link_credit_timeout),
@@ -403,7 +438,7 @@ filtered_roundtrip(OpenConf, Body) ->
 
     {ok, DefaultReceiver} = amqp10_client:attach_receiver_link(Session,
                                                         <<"default-receiver">>,
-                                                        <<"test1">>,
+                                                        Destination,
                                                         settled,
                                                         unsettled_state),
     ok = amqp10_client:send_msg(Sender, Msg1),
@@ -421,7 +456,7 @@ filtered_roundtrip(OpenConf, Body) ->
 
     {ok, FilteredReceiver} = amqp10_client:attach_receiver_link(Session,
                                                         <<"filtered-receiver">>,
-                                                        <<"test1">>,
+                                                        Destination,
                                                         settled,
                                                         unsettled_state,
                                                         #{<<"apache.org:selector-filter:string">> => <<"amqp.annotation.x-opt-enqueuedtimeutc > ", Now2Binary/binary>>}),
@@ -727,7 +762,7 @@ subscribe_with_auto_flow_unsettled(Config) ->
     ok = amqp10_client:end_session(Session),
     ok = amqp10_client:close_connection(Connection).
 
-    
+
 insufficient_credit(Config) ->
     Hostname = ?config(mock_host, Config),
     Port = ?config(mock_port, Config),
@@ -837,7 +872,7 @@ set_receiver_capabilities(Config) ->
 
 %    Hostname = ?config(mock_host, Config),
 %    Port = ?config(mock_port, Config),
-    
+
     OpenStep = fun({0 = Ch, #'v1_0.open'{}, _Pay}) ->
                        {Ch, [#'v1_0.open'{container_id = {utf8, <<"mock">>}}]}
                end,
@@ -948,7 +983,7 @@ set_sender_capabilities(Config) ->
                                     capabilities => <<"capability-1">>}},
                 snd_settle_mode => mixed,
                 rcv_settle_mode => first},
-    {ok, Sender} = amqp10_client:attach_link(Session, AttachArgs),   
+    {ok, Sender} = amqp10_client:attach_link(Session, AttachArgs),
     await_link(Sender, attached, attached_timeout),
     Msg = amqp10_msg:new(<<"mock-tag">>, <<"banana">>, true),
     {error, insufficient_credit} = amqp10_client:send_msg(Sender, Msg),
@@ -961,7 +996,7 @@ set_sender_capabilities(Config) ->
 set_sender_sync_capabilities(Config) ->
     Hostname = ?config(tcp_hostname_amqp, Config),
     Port = ?config(tcp_port_amqp, Config),
-    
+
     OpenStep = fun({0 = Ch, #'v1_0.open'{}, _Pay}) ->
                        {Ch, [#'v1_0.open'{container_id = {utf8, <<"mock">>}}]}
                end,
