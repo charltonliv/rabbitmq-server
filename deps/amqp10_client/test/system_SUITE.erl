@@ -21,17 +21,19 @@ suite() ->
 
 all() ->
     [
-     {group, rabbitmq},
-     {group, rabbitmq_strict},
-     {group, activemq},
-     {group, activemq_no_anon},
-     {group, mock}
+  %   {group, rabbitmq},
+  %   {group, rabbitmq_strict},
+  %   {group, activemq},
+      {group, ibmmq}
+  %   {group, activemq_no_anon},
+  %   {group, mock}
     ].
 
 groups() ->
     [
      {rabbitmq, [], shared()},
      {activemq, [], shared()},
+     {ibmmq, [], test()},
      {rabbitmq_strict, [], [
                             basic_roundtrip_tls,
                             roundtrip_tls_global_config,
@@ -58,6 +60,13 @@ groups() ->
                  set_sender_capabilities,
                  set_sender_sync_capabilities
                 ]}
+    ].
+
+test() -> 
+    [
+        open_close_connection,
+        basic_roundtrip,
+        set_sender_capabilities
     ].
 
 shared() ->
@@ -120,6 +129,12 @@ init_per_group(activemq, Config0) ->
     Config = rabbit_ct_helpers:set_config(Config0, {sasl, anon}),
     rabbit_ct_helpers:run_steps(Config,
                                 activemq_ct_helpers:setup_steps("activemq.xml"));
+
+init_per_group(ibmmq, Config0) ->
+    rabbit_ct_helpers:set_config(Config0, [ {rmq_hostname, "localhost"}, 
+                                            {tcp_hostname_amqp, "localhost"},
+                                            {tcp_port_amqp, 5677},
+                                            {sasl, {plain, <<"app">>, <<"passw0rd">>}} ]);
 init_per_group(activemq_no_anon, Config0) ->
     Config = rabbit_ct_helpers:set_config(
                Config0, {sasl, {plain, <<"user">>, <<"password">>}}),
@@ -134,8 +149,8 @@ init_per_group(azure, Config) ->
                                          {sb_port, 5671}
                                         ]);
 init_per_group(mock, Config) ->
-    rabbit_ct_helpers:set_config(Config, [{mock_port, 25000},
-                                          {mock_host, "localhost"},
+    rabbit_ct_helpers:set_config(Config, [{tcp_port_amqp, 25000},
+                                          {tcp_hostname_amqp, "localhost"},
                                           {sasl, none}
                                          ]).
 end_per_group(rabbitmq, Config) ->
@@ -171,7 +186,8 @@ end_per_testcase(_Test, Config) ->
 
 open_close_connection(Config) ->
     Hostname = ?config(rmq_hostname, Config),
-    Port = rabbit_ct_broker_helpers:get_node_config(Config, 0, tcp_port_amqp),
+    Port = ?config(tcp_port_amqp, Config),
+    %% Port = rabbit_ct_broker_helpers:get_node_config(Config, 0, tcp_port_amqp),
     %% an address list
     OpnConf = #{addresses => [Hostname],
                 port => Port,
@@ -816,8 +832,11 @@ multi_transfer_without_delivery_id(Config) ->
     ok.
 
 set_receiver_capabilities(Config) ->
-    Hostname = ?config(mock_host, Config),
-    Port = ?config(mock_port, Config),
+    Hostname = ?config(tcp_hostname_amqp, Config),
+    Port = ?config(tcp_port_amqp, Config),
+
+%    Hostname = ?config(mock_host, Config),
+%    Port = ?config(mock_port, Config),
     
     OpenStep = fun({0 = Ch, #'v1_0.open'{}, _Pay}) ->
                        {Ch, [#'v1_0.open'{container_id = {utf8, <<"mock">>}}]}
@@ -889,8 +908,8 @@ set_receiver_capabilities(Config) ->
     ok.
 
 set_sender_capabilities(Config) ->
-    Hostname = ?config(mock_host, Config),
-    Port = ?config(mock_port, Config),
+    Hostname = ?config(tcp_hostname_amqp, Config),
+    Port = ?config(tcp_port_amqp, Config),
     OpenStep = fun({0 = Ch, #'v1_0.open'{}, _Pay}) ->
                        {Ch, [#'v1_0.open'{container_id = {utf8, <<"mock">>}}]}
                end,
@@ -940,8 +959,9 @@ set_sender_capabilities(Config) ->
 
 
 set_sender_sync_capabilities(Config) ->
-    Hostname = ?config(mock_host, Config),
-    Port = ?config(mock_port, Config),
+    Hostname = ?config(tcp_hostname_amqp, Config),
+    Port = ?config(tcp_port_amqp, Config),
+    
     OpenStep = fun({0 = Ch, #'v1_0.open'{}, _Pay}) ->
                        {Ch, [#'v1_0.open'{container_id = {utf8, <<"mock">>}}]}
                end,

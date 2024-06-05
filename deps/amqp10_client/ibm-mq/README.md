@@ -1,22 +1,12 @@
+https://developer.ibm.com/tutorials/mq-setting-up-amqp-with-mq/
+
 # Build docker image 
-
-It downloads artifacts from https://public.dhe.ibm.com/ibmdl/export/pub/software/websphere/messaging/mqadv. 
-
-For ubuntu x86, run this command:
-```
-docker build -t "ibm-mq" --build-arg ARCH=UbuntuLinuxX64 .
-```
-
-For ubuntu ARM, run this command:
-```
-docker build -t "ibm-mq" --build-arg ARCH=UbuntuLinuxARM .
-```
 
 
 # Run docker image 
 
- docker run -d ibm-mq
-
+docker run  --name mq --env LICENSE=accept --env MQ_QMGR_NAME=QM1 --env MQ_APP_PASSWORD=passw0rd --env MQ_ADMIN_PASSWORD=passw0rd --publish 1414:1414 --publish 9443:9443 --publish 5677:5672 --detach ibm-mqadvanced-server-dev:9.3.5.1-arm64  
+  
 # Display queues 
 
 docker exec -it ibm-mq 
