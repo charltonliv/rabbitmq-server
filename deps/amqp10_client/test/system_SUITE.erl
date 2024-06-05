@@ -21,12 +21,12 @@ suite() ->
 
 all() ->
     [
-  %   {group, rabbitmq},
-  %   {group, rabbitmq_strict},
-  %   {group, activemq},
-      {group, ibmmq}
-  %   {group, activemq_no_anon},
-  %   {group, mock}
+     {group, rabbitmq},
+     {group, rabbitmq_strict},
+     {group, activemq},
+  %    {group, ibmmq}
+     {group, activemq_no_anon},
+     {group, mock}
     ].
 
 groups() ->
