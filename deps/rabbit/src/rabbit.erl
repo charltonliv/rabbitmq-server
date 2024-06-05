@@ -13,8 +13,6 @@
 
 -behaviour(application).
 
--compile({nowarn_deprecated_function, [{code, lib_dir, 2}]}).
-
 -export([start/0, boot/0, stop/0,
          stop_and_halt/0, await_startup/0, await_startup/1, await_startup/3,
          status/0, is_running/0, is_serving/0, alarms/0,
@@ -1685,7 +1683,7 @@ ensure_working_fhc() ->
                   #{domain => ?RMQLOG_DOMAIN_GLOBAL}),
         ?LOG_INFO("FHC write buffering: ~ts", [WriteBuf],
                   #{domain => ?RMQLOG_DOMAIN_GLOBAL}),
-        Filename = filename:join(code:lib_dir(kernel, ebin), "kernel.app"),
+        Filename = filename:join(code:lib_dir(kernel), "ebin/kernel.app"),
         {ok, Fd} = file_handle_cache:open(Filename, [raw, binary, read], []),
         {ok, _} = file_handle_cache:read(Fd, 1),
         ok = file_handle_cache:close(Fd),
