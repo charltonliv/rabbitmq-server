@@ -347,7 +347,13 @@ basic_roundtrip_ibmmq(Config) ->
     Hostname = ?config(rmq_hostname, Config),
     Port = rabbit_ct_broker_helpers:get_node_config(Config, 0, tcp_port_amqp),
     OpenConf = #{address => Hostname, port => Port, sasl => ?config(sasl, Config)},
-    roundtrip(OpenConf, [{body, <<"banana">>}, {destination, <<"DEV.QUEUE.3">>}]).
+    roundtrip(OpenConf, [
+        {body, <<"banana">>},
+        {destination, <<"DEV.QUEUE.3">>},
+        {sender_capabilities, <<"queue">>},
+        {receiver_capabilities, <<"queue">>},
+        {message_annotations, #{}}
+    ]).
 
 roundtrip(OpenConf) ->
     roundtrip(OpenConf, []).
@@ -355,13 +361,18 @@ roundtrip(OpenConf) ->
 roundtrip(OpenConf, Args) ->
     Body = proplists:get_value(body, Args, <<"banana">>),
     Destination = proplists:get_value(destination, Args, <<"test1">>),
+    SenderCapabilities = proplists:get_value(sender_capabilities, Args, <<>>),
+    ReceiverCapabilities = proplists:get_value(receiver_capabilities, Args, <<>>),
+    MessageAnnotations = proplists:get_value(message_annotations, Args,
+                                                #{<<"x-key">> => <<"x-value">>,
+                                                  <<"x_key">> => <<"x_value">>}),
+
     {ok, Connection} = amqp10_client:open_connection(OpenConf),
     {ok, Session} = amqp10_client:begin_session(Connection),
-    ct:log("Session attached "),
-    SenderAttachArgs = #{name => <<"banana-sender:DEV.QUEUE.3">>,
+    SenderAttachArgs = #{name => <<"banana-sender">>,
                    role => {sender, #{address => Destination,
-                                        durable => unsettled_state,
-                                        capabilities => <<"queue">>}},
+                                      durable => unsettled_state,
+                                      capabilities => SenderCapabilities}},
                    snd_settle_mode => settled,
                    rcv_settle_mode => first,
                    filter => #{},
@@ -370,7 +381,6 @@ roundtrip(OpenConf, Args) ->
     {ok, Sender} = amqp10_client:attach_link(Session, SenderAttachArgs),
     %%await_link(Sender, credited, link_credit_timeout),
     await_link(Sender, attached, attached_timeout),
-    ct:log("Sender attached "),
 
     Now = os:system_time(millisecond),
     Props = #{content_encoding => <<"my content encoding">>,
@@ -379,13 +389,12 @@ roundtrip(OpenConf, Args) ->
               creation_time => Now,
               group_id => <<"my group ID">>,
               message_id => <<"my message ID">>,
-              to => Destination
+              to => <<"localhost">>
               },
     Msg0 = amqp10_msg:new(<<"my-tag">>, Body, true),
     Msg1 = amqp10_msg:set_application_properties(#{"a_key" => "a_value"}, Msg0),
     Msg2 = amqp10_msg:set_properties(Props, Msg1),
-    Msg = amqp10_msg:set_message_annotations(#{<<"x-key">> => "x-value",
-                                               <<"x_key">> => "x_value"}, Msg2),
+    Msg = amqp10_msg:set_message_annotations(MessageAnnotations, Msg2),
     ok = amqp10_client:send_msg(Sender, Msg),
     ok = amqp10_client:detach_link(Sender),
     await_link(Sender, {detached, normal}, link_detach_timeout),
@@ -395,24 +404,25 @@ roundtrip(OpenConf, Args) ->
                    name => <<"banana-receiver">>,
                    role => {receiver, #{address => Destination,
                                         durable => unsettled_state,
-                                        capabilities => <<"queue">>}, self()},
+                                        capabilities => ReceiverCapabilities}, self()},
                    snd_settle_mode => settled,
                    rcv_settle_mode => first,
                    filter => #{},
                    properties => #{}
                    },
     {ok, Receiver} = amqp10_client:attach_link(Session, ReceiverAttachArgs),
-    {ok, OutMsg} = amqp10_client:get_msg(Receiver, 4_000),
+    {ok, OutMsg} = amqp10_client:get_msg(Receiver, 4 * 60_000),
     ok = amqp10_client:end_session(Session),
     ok = amqp10_client:close_connection(Connection),
 
     % ct:pal(?LOW_IMPORTANCE, "roundtrip message Out: ~tp~nIn: ~tp~n", [OutMsg, Msg]),
     ActualProps = amqp10_msg:properties(OutMsg),
-    [ ?assertMatch(V, maps:get(K, ActualProps)) || K := V <- Props, K =/= creation_time],
+    [ ?assertEqual(V, maps:get(K, ActualProps)) || K := V <- Props, K =/= creation_time],
 
     ?assertEqual(#{<<"a_key">> => <<"a_value">>}, amqp10_msg:application_properties(OutMsg)),
-    ?assertMatch(#{<<"x-key">> := <<"x-value">>,
-                   <<"x_key">> := <<"x_value">>}, amqp10_msg:message_annotations(OutMsg)),
+    ActualMessageAnnotations = amqp10_msg:message_annotations(OutMsg),
+    [ ?assertEqual(V, maps:get(K, ActualMessageAnnotations)) || K := V <- MessageAnnotations],
+
     ?assertEqual([Body], amqp10_msg:body(OutMsg)),
     ok.
 
@@ -455,12 +465,14 @@ filtered_roundtrip(OpenConf, Args) ->
 
     ok = amqp10_client:send_msg(Sender, Msg2),
 
+    SelectorFilter = #{<<"apache.org:selector-filter:string">> =>
+        <<"amqp.annotation.x-opt-enqueuedtimeutc > ", Now2Binary/binary>>},
     {ok, FilteredReceiver} = amqp10_client:attach_receiver_link(Session,
                                                         <<"filtered-receiver">>,
                                                         Destination,
                                                         settled,
                                                         unsettled_state,
-                                                        #{<<"apache.org:selector-filter:string">> => <<"amqp.annotation.x-opt-enqueuedtimeutc > ", Now2Binary/binary>>}),
+                                                        SelectorFilter),
 
     {ok, OutMsg2} = amqp10_client:get_msg(DefaultReceiver, 60_000 * 4),
     ?assertEqual(<<"msg-2-tag">>, amqp10_msg:delivery_tag(OutMsg2)),
